@@ -1,0 +1,7 @@
+# Render Blueprint — https://dashboard.render.com → New → Web Service → Connect repo
+# Add env var OPENAI_API_KEY in the dashboard. Render sets PORT automatically.
+services:
+  - type: web
+    name: upwork-proposal-agent
+    runtime: python
+    startCommand: python app.py

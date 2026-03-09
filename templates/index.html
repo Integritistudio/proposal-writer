@@ -1,0 +1,275 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Upwork Proposal Agent — BD Team</title>
+  <style>
+    * { box-sizing: border-box; }
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+    .sub {
+      color: #555;
+      font-size: 0.9rem;
+      margin-bottom: 24px;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+    textarea {
+      width: 100%;
+      min-height: 180px;
+      padding: 12px;
+      border: 1px solid #ccc;
+      border-radius: 8px;
+      font-size: 14px;
+      resize: vertical;
+    }
+    textarea:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+    .actions {
+      margin-top: 12px;
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+    button {
+      padding: 10px 20px;
+      font-size: 14px;
+      font-weight: 500;
+      border: none;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button.primary {
+      background: #2563eb;
+      color: white;
+    }
+    button.primary:hover { background: #1d4ed8; }
+    button.primary:disabled {
+      background: #94a3b8;
+      cursor: not-allowed;
+    }
+    button.secondary {
+      background: #e2e8f0;
+      color: #334155;
+    }
+    button.secondary:hover { background: #cbd5e1; }
+    .result-section {
+      margin-top: 28px;
+      padding: 20px;
+      background: white;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+    }
+    .result-section h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 12px 0;
+    }
+    .proposal-output {
+      white-space: pre-wrap;
+      font-size: 14px;
+      line-height: 1.55;
+      padding: 12px;
+      background: #f8fafc;
+      border-radius: 6px;
+      min-height: 80px;
+    }
+    .error {
+      color: #b91c1c;
+      font-size: 14px;
+      margin-top: 8px;
+    }
+    .status {
+      font-size: 13px;
+      color: #64748b;
+    }
+    .note-section {
+      margin-top: 16px;
+      padding: 14px 16px;
+      background: #f0f9ff;
+      border-radius: 6px;
+      border-left: 4px solid #0ea5e9;
+    }
+    .note-section h3 {
+      font-size: 0.9rem;
+      font-weight: 600;
+      margin: 0 0 6px 0;
+      color: #0369a1;
+    }
+    .note-hint {
+      font-size: 12px;
+      color: #0c4a6e;
+      margin: 0 0 10px 0;
+      line-height: 1.4;
+    }
+    .note-input {
+      width: 100%;
+      min-height: 60px;
+      padding: 10px 12px;
+      border: 1px solid #7dd3fc;
+      border-radius: 6px;
+      font-size: 14px;
+      resize: vertical;
+      margin-bottom: 10px;
+    }
+    .note-input:focus {
+      outline: none;
+      border-color: #0ea5e9;
+    }
+    .note-actions {
+      margin-top: 4px;
+    }
+  </style>
+</head>
+<body>
+  <h1>Upwork Proposal Agent</h1>
+  <p class="sub">Paste an Upwork job post below. The agent uses your winning proposals and portfolio to generate a matching proposal. <a href="/rate">Rate proposals</a> so the agent learns from leads and views.</p>
+
+  <label for="job">Job post</label>
+  <textarea id="job" placeholder="Paste the full Upwork job description here..."></textarea>
+
+  <div class="actions">
+    <button type="button" class="primary" id="btnGenerate">Generate proposal</button>
+    <button type="button" class="secondary" id="btnCopy" style="display: none;">Copy proposal</button>
+    <span class="status" id="status"></span>
+  </div>
+
+  <div class="result-section" id="resultSection" style="display: none;">
+    <h2>Proposal</h2>
+    <div class="proposal-output" id="proposalOutput"></div>
+    <div class="note-section" id="noteSection">
+      <h3>Notes</h3>
+      <p class="note-hint">If the agent didn't include the right relevant examples in the proposal, add them here (e.g. Vino Site, coloritto.co). Click the button below to rewrite the proposal using these examples and save them for future similar jobs.</p>
+      <textarea id="noteInput" class="note-input" rows="3" placeholder="e.g. Vino Site (coloritto.co), Ryp Golf (urthlabs.com)"></textarea>
+      <div class="note-actions">
+        <button type="button" class="secondary" id="btnRewrite">Rewrite with notes & remember for future jobs</button>
+      </div>
+    </div>
+    <p class="error" id="errorMsg" style="display: none;"></p>
+  </div>
+
+  <script>
+    const jobEl = document.getElementById('job');
+    const btnGenerate = document.getElementById('btnGenerate');
+    const btnCopy = document.getElementById('btnCopy');
+    const statusEl = document.getElementById('status');
+    const resultSection = document.getElementById('resultSection');
+    const proposalOutput = document.getElementById('proposalOutput');
+    const noteInput = document.getElementById('noteInput');
+    const btnRewrite = document.getElementById('btnRewrite');
+    const errorMsg = document.getElementById('errorMsg');
+
+    function setStatus(text) {
+      statusEl.textContent = text;
+    }
+
+    function showResult(proposal, isError, relevantExample) {
+      resultSection.style.display = 'block';
+      proposalOutput.textContent = proposal || '';
+      errorMsg.textContent = isError ? proposal : '';
+      errorMsg.style.display = isError ? 'block' : 'none';
+      btnCopy.style.display = proposal && !isError ? 'inline-block' : 'none';
+      noteInput.value = relevantExample || '';
+    }
+
+    btnGenerate.addEventListener('click', async function () {
+      const job = jobEl.value.trim();
+      if (!job) {
+        setStatus('Please paste a job post.');
+        showResult('', false, '');
+        return;
+      }
+      btnGenerate.disabled = true;
+      setStatus('Generating…');
+      showResult('', false, '');
+
+      try {
+        const res = await fetch('/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_post: job })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          setStatus('Done. Proposal logged.');
+          showResult(data.proposal, false, data.relevant_example || '');
+        } else {
+          setStatus('');
+          showResult(data.error || 'Something went wrong.', true, '');
+        }
+      } catch (e) {
+        setStatus('');
+        showResult('Request failed: ' + e.message, true, '');
+      } finally {
+        btnGenerate.disabled = false;
+      }
+    });
+
+    btnCopy.addEventListener('click', function () {
+      const text = proposalOutput.textContent;
+      if (!text) return;
+      navigator.clipboard.writeText(text).then(function () {
+        setStatus('Copied to clipboard.');
+        setTimeout(function () { setStatus(''); }, 2000);
+      });
+    });
+
+    btnRewrite.addEventListener('click', async function () {
+      const job = jobEl.value.trim();
+      const relevantExample = noteInput.value.trim();
+      if (!job) {
+        setStatus('Please paste a job post first.');
+        return;
+      }
+      if (!relevantExample) {
+        setStatus('Add the relevant example(s) in Notes, then click the rewrite button.');
+        return;
+      }
+      btnRewrite.disabled = true;
+      setStatus('Saving examples and rewriting proposal…');
+
+      try {
+        const res = await fetch('/generate', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ job_post: job, relevant_example: relevantExample })
+        });
+        const data = await res.json();
+
+        if (data.ok) {
+          setStatus('Done. Examples saved; proposal updated.');
+          showResult(data.proposal, false, data.relevant_example || relevantExample);
+        } else {
+          setStatus('');
+          showResult(data.error || 'Something went wrong.', true, relevantExample);
+        }
+      } catch (e) {
+        setStatus('');
+        showResult('Request failed: ' + e.message, true, relevantExample);
+      } finally {
+        btnRewrite.disabled = false;
+      }
+    });
+  </script>
+</body>
+</html>
