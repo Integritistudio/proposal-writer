@@ -121,7 +121,7 @@ def save_rating(ts: str, rating: int) -> None:
         json.dump(ratings, f, indent=2)
 
 
-def get_proposals_for_rating() -> list:
+def get_proposals_for_rating(user_id: str | None = None) -> list:
     """
     Return list of proposals to rate: one per job (latest only if rewritten multiple times).
     Each item: { ts, job_snippet, proposal_snippet, proposal_full, rating }.
@@ -149,6 +149,8 @@ def get_proposals_for_rating() -> list:
     # Group by job_post (exact), keep latest (max ts) per job
     by_job = {}
     for p in parsed:
+        if user_id and (p.get("user_id") or "") != user_id:
+            continue
         job = (p.get("job_post") or "").strip()
         ts = p.get("ts") or ""
         if not ts:
@@ -281,7 +283,7 @@ def save_relevant_example(job_post: str, relevant_example: str, tech_stacks: dic
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str = None):
+def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str = None, user_id: str | None = None):
     """Append one proposal to the log. Outcome can be set later (e.g. won/lost)."""
     ensure_learning_dir()
     record = {
@@ -290,6 +292,7 @@ def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str =
         "proposal": proposal,
         "tech_stacks": tech_stacks,
         "outcome": outcome,
+        "user_id": user_id,
     }
     with open(PROPOSALS_LOG_PATH, "a", encoding="utf-8") as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
@@ -397,7 +400,7 @@ Output the proposal first, then that Note line. The agent will remember the rele
     return user
 
 
-def generate_proposal(job_post: str, user_instructions: str = "", relevant_example_override: str = None) -> dict:
+def generate_proposal(job_post: str, user_instructions: str = "", relevant_example_override: str = None, user_id: str | None = None) -> dict:
     """
     Load brain from docx, detect tech stacks, call LLM, log proposal.
     If relevant_example_override is set, save it for future jobs and rewrite the proposal using it (no Note line in output).
@@ -475,5 +478,5 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
     except Exception as e:
         return {"proposal": "", "tech_stacks": tech_stacks, "relevant_example": "", "error": str(e)}
 
-    log_proposal(job_post, proposal, tech_stacks)
+    log_proposal(job_post, proposal, tech_stacks, user_id=user_id)
     return {"proposal": proposal, "tech_stacks": tech_stacks, "relevant_example": relevant_example, "error": None}

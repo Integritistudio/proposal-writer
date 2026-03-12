@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ 'Sign up' if mode == 'signup' else 'Log in' }} — Upwork Proposal Agent</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      max-width: 420px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f5f5f5;
+      color: #1a1a1a;
+    }
+    h1 {
+      font-size: 1.4rem;
+      margin-bottom: 8px;
+    }
+    .sub {
+      font-size: 0.9rem;
+      color: #555;
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      font-weight: 500;
+      margin-bottom: 6px;
+      font-size: 0.9rem;
+    }
+    input {
+      width: 100%;
+      padding: 10px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      font-size: 14px;
+      margin-bottom: 12px;
+      box-sizing: border-box;
+    }
+    input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.2);
+    }
+    button {
+      width: 100%;
+      padding: 10px 16px;
+      border-radius: 8px;
+      border: none;
+      background: #2563eb;
+      color: white;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      margin-top: 8px;
+    }
+    button:hover {
+      background: #1d4ed8;
+    }
+    .error {
+      color: #b91c1c;
+      font-size: 0.85rem;
+      margin-top: 4px;
+      margin-bottom: 8px;
+    }
+    .switch {
+      margin-top: 12px;
+      font-size: 0.9rem;
+      color: #475569;
+    }
+    .switch a {
+      color: #2563eb;
+      text-decoration: none;
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <h1>{{ 'Sign up' if mode == 'signup' else 'Log in' }}</h1>
+  <p class="sub">Each account only sees its own proposals and ratings.</p>
+
+  {% if error %}
+    <div class="error">{{ error }}</div>
+  {% endif %}
+
+  <form method="post">
+    <label for="email">Email</label>
+    <input id="email" name="email" type="email" required autocomplete="email" value="{{ email or '' }}">
+
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" required autocomplete="{{ 'new-password' if mode == 'signup' else 'current-password' }}">
+
+    <button type="submit">{{ 'Create account' if mode == 'signup' else 'Log in' }}</button>
+  </form>
+
+  <div class="switch">
+    {% if mode == 'signup' %}
+      Already have an account? <a href="{{ url_for('login') }}">Log in</a>.
+    {% else %}
+      New here? <a href="{{ url_for('signup') }}">Sign up</a>.
+    {% endif %}
+  </div>
+</body>
+</html>
+

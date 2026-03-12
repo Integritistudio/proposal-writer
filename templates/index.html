@@ -142,7 +142,19 @@
 </head>
 <body>
   <h1>Upwork Proposal Agent</h1>
-  <p class="sub">Paste an Upwork job post below. The agent uses your winning proposals and portfolio to generate a matching proposal. <a href="/rate">Rate proposals</a> so the agent learns from leads and views.</p>
+  <p class="sub">
+    Paste an Upwork job post below. The agent uses your winning proposals and portfolio to generate a matching proposal.
+    <a href="/rate">Rate proposals</a> so the agent learns from leads and views.
+  </p>
+
+  <p class="sub">
+    {% if user %}
+      Signed in as <strong>{{ user.email }}</strong>.
+      <a href="/logout">Log out</a>
+    {% else %}
+      <a href="/login">Log in</a> or <a href="/signup">sign up</a> to use the agent.
+    {% endif %}
+  </p>
 
   <label for="job">Job post</label>
   <textarea id="job" placeholder="Paste the full Upwork job description here..."></textarea>
