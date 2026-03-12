@@ -120,13 +120,15 @@ def get_user(user_id: str) -> Optional[dict]:
     try:
         with conn:
             with conn.cursor() as cur:
+                # Allow both numeric IDs and legacy string IDs like "user_1" by
+                # comparing against id::text.
                 cur.execute(
                     """
                     SELECT id, email, password_hash, is_admin
                     FROM users
-                    WHERE id = %s;
+                    WHERE id::text = %s;
                     """,
-                    (int(user_id),),
+                    (str(user_id),),
                 )
                 row = cur.fetchone()
                 if not row:
