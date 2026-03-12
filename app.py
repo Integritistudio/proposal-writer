@@ -16,10 +16,16 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 
 from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating, load_ratings
 from config import PROPOSALS_LOG_PATH
-from auth import create_user, authenticate, get_user, get_all_users
+from auth import create_user, authenticate, get_user, get_all_users, init_auth_db
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-me")
+
+# Initialize auth database (users table). If DB is unavailable, app still starts but auth will fail.
+try:
+    init_auth_db()
+except Exception:
+    pass
 
 
 @app.route("/")
