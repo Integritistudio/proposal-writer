@@ -13,8 +13,9 @@ except ImportError:
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
-from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating
-from auth import create_user, authenticate, get_user
+from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating, load_ratings
+from config import PROPOSALS_LOG_PATH
+from auth import create_user, authenticate, get_user, get_all_users
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-me")
@@ -125,6 +126,58 @@ def login():
 def logout():
     session.pop("user_id", None)
     return redirect(url_for("login"))
+
+
+@app.route("/admin")
+def admin_dashboard():
+    user_id = session.get("user_id")
+    if not user_id:
+        return redirect(url_for("login"))
+    user = get_user(user_id)
+    if not user or not user.get("is_admin"):
+        return "Forbidden", 403
+
+    proposals = []
+    ratings = load_ratings()
+    users = get_all_users()
+    user_email_by_id = {uid: u.get("email") for uid, u in users.items()}
+
+    if PROPOSALS_LOG_PATH.exists():
+        try:
+            with open(PROPOSALS_LOG_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            lines = []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+            except Exception:
+                continue
+            ts = data.get("ts") or ""
+            job = (data.get("job_post") or "").strip()
+            proposal_text = (data.get("proposal") or "").strip()
+            uid = data.get("user_id") or ""
+            proposals.append({
+                "ts": ts,
+                "job_snippet": job[:200] + ("..." if len(job) > 200 else ""),
+                "proposal_snippet": proposal_text[:250] + ("..." if len(proposal_text) > 250 else ""),
+                "proposal_full": proposal_text,
+                "rating": ratings.get(ts),
+                "user_id": uid,
+                "user_email": user_email_by_id.get(uid, None),
+            })
+
+    proposals.sort(key=lambda x: x["ts"], reverse=True)
+
+    user_counts: dict[str, int] = {}
+    for p in proposals:
+        email = p["user_email"] or "Unknown"
+        user_counts[email] = user_counts.get(email, 0) + 1
+
+    return render_template("admin.html", user=user, proposals=proposals, user_counts=user_counts)
 
 
 if __name__ == "__main__":

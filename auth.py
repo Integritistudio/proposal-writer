@@ -83,3 +83,10 @@ def get_user(user_id: str) -> Optional[dict]:
     users = _load_users()
     return users.get(user_id)
 
+
+def get_all_users() -> Dict[str, dict]:
+    """
+    Return mapping of user_id -> user dict.
+    """
+    return _load_users()
+
