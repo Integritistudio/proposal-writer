@@ -3,6 +3,7 @@ Upwork Proposal Agent — BD team web UI.
 Paste job post, get proposal. Proposals are logged and agent stays up to date from docx + log.
 """
 import os
+import json
 from pathlib import Path
 
 try:
