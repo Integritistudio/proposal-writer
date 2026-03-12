@@ -147,6 +147,12 @@
   <label for="job">Job post</label>
   <textarea id="job" placeholder="Paste the full Upwork job description here..."></textarea>
 
+  <div class="note-section" style="margin-top: 16px;">
+    <h3>Optional instructions</h3>
+    <p class="note-hint">If you want the agent to follow extra instructions for this job (e.g. “focus on Shopify SEO”, “keep it under 250 words”, or client-specific notes), add them here. If left empty, the agent will write the proposal using its usual behavior.</p>
+    <textarea id="instructions" class="note-input" rows="3" placeholder="Any extra instructions for this proposal (optional)…"></textarea>
+  </div>
+
   <div class="actions">
     <button type="button" class="primary" id="btnGenerate">Generate proposal</button>
     <button type="button" class="secondary" id="btnCopy" style="display: none;">Copy proposal</button>
@@ -172,6 +178,7 @@
     const btnGenerate = document.getElementById('btnGenerate');
     const btnCopy = document.getElementById('btnCopy');
     const statusEl = document.getElementById('status');
+    const instructionsEl = document.getElementById('instructions');
     const resultSection = document.getElementById('resultSection');
     const proposalOutput = document.getElementById('proposalOutput');
     const noteInput = document.getElementById('noteInput');
@@ -193,6 +200,7 @@
 
     btnGenerate.addEventListener('click', async function () {
       const job = jobEl.value.trim();
+      const instructions = instructionsEl.value.trim();
       if (!job) {
         setStatus('Please paste a job post.');
         showResult('', false, '');
@@ -206,7 +214,7 @@
         const res = await fetch('/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_post: job })
+          body: JSON.stringify({ job_post: job, instructions })
         });
         const data = await res.json();
 
@@ -236,6 +244,7 @@
 
     btnRewrite.addEventListener('click', async function () {
       const job = jobEl.value.trim();
+      const instructions = instructionsEl.value.trim();
       const relevantExample = noteInput.value.trim();
       if (!job) {
         setStatus('Please paste a job post first.');
@@ -252,7 +261,7 @@
         const res = await fetch('/generate', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ job_post: job, relevant_example: relevantExample })
+          body: JSON.stringify({ job_post: job, instructions, relevant_example: relevantExample })
         });
         const data = await res.json();
 

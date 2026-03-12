@@ -27,10 +27,15 @@ def index():
 def generate():
     data = request.get_json() or {}
     job_post = (data.get("job_post") or "").strip()
+    user_instructions = (data.get("instructions") or "").strip()
     relevant_example = (data.get("relevant_example") or "").strip()
     if not job_post:
         return jsonify({"ok": False, "error": "Job post is required.", "proposal": ""}), 400
-    result = generate_proposal(job_post, relevant_example_override=relevant_example or None)
+    result = generate_proposal(
+        job_post,
+        user_instructions=user_instructions,
+        relevant_example_override=relevant_example or None,
+    )
     if result.get("error"):
         return jsonify({
             "ok": False,

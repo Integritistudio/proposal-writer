@@ -311,6 +311,7 @@ STRICT RULES:
 
 def build_user_prompt(
     job_post: str,
+    user_instructions: str,
     winning_text: str,
     portfolio_text: str,
     tech_stacks: dict,
@@ -374,6 +375,17 @@ NEW JOB POST:
 \"\"\"
 
 """
+    if user_instructions:
+        user += f"""
+USER INSTRUCTIONS FOR THIS SPECIFIC PROPOSAL:
+
+\"\"\"
+{user_instructions}
+\"\"\"
+
+Follow these user instructions carefully while still following all the strict rules and style from the winning proposals above.
+
+"""
     if relevant_example_override:
         user += """TASK: Write one complete Upwork proposal. Use the winning proposals' structure and tone. Use the relevant examples specified above. After each example, add its website URL (e.g. coloritto.co, urthlabs.com) from the portfolio—not tech stack URLs. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
     else:
@@ -385,7 +397,7 @@ Output the proposal first, then that Note line. The agent will remember the rele
     return user
 
 
-def generate_proposal(job_post: str, relevant_example_override: str = None) -> dict:
+def generate_proposal(job_post: str, user_instructions: str = "", relevant_example_override: str = None) -> dict:
     """
     Load brain from docx, detect tech stacks, call LLM, log proposal.
     If relevant_example_override is set, save it for future jobs and rewrite the proposal using it (no Note line in output).
@@ -409,8 +421,16 @@ def generate_proposal(job_post: str, relevant_example_override: str = None) -> d
 
     system = build_system_prompt(recent_context)
     user = build_user_prompt(
-        job_post, winning_text, portfolio_text, tech_stacks, recent_context, urls_from_docs,
-        relevant_examples_context, relevant_example_override, high_rated_context,
+        job_post,
+        (user_instructions or "").strip(),
+        winning_text,
+        portfolio_text,
+        tech_stacks,
+        recent_context,
+        urls_from_docs,
+        relevant_examples_context,
+        relevant_example_override,
+        high_rated_context,
     )
 
     api_key = os.getenv("OPENAI_API_KEY")
