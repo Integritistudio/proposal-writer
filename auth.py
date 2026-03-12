@@ -49,10 +49,12 @@ def create_user(email: str, password: str) -> Optional[str]:
         if data.get("email") == email:
             return None
     user_id = f"user_{len(users) + 1}"
+    is_admin = email == "muhammad.haseeb@integriti.io"
     users[user_id] = {
         "id": user_id,
         "email": email,
         "password_hash": _hash_password(password),
+        "is_admin": is_admin,
     }
     _save_users(users)
     return user_id
@@ -69,6 +71,10 @@ def authenticate(email: str, password: str) -> Optional[dict]:
     pw_hash = _hash_password(password)
     for user in users.values():
         if user.get("email") == email and user.get("password_hash") == pw_hash:
+            # Backfill admin flag if missing
+            if email == "muhammad.haseeb@integriti.io" and not user.get("is_admin"):
+                user["is_admin"] = True
+                _save_users(users)
             return user
     return None
 
