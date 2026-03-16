@@ -490,7 +490,8 @@ STRICT RULES:
 - Add 1–3 relevant portfolio items that match the job. Name them in plain text only—no bold, no asterisks, no square brackets.
 - After each relevant example you mention, add that example's website URL (the live store/site URL from the portfolio or winning proposals, e.g. coloritto.co, urthlabs.com). Do NOT add tech stack product URLs (e.g. shopify.com, gempages.com) in the proposal—only the client/store or project website URLs (e.g. coloritto.co) after the example.
 - Write like a human: clear, confident, customized. No fluff.
-- Follow the same structure as in the winning proposals (opening, understanding, approach, examples, closing)."""
+- Follow the same structure as in the winning proposals (opening, understanding, approach, examples, closing).
+- Open the proposal the same way the winning proposals open. Do NOT start with generic phrases like "I've reviewed your project", "I have read your job description", "I’ve gone through your requirements", or similar boilerplate. Instead, mirror the style and opening patterns from the winning proposals document."""
 
 
 def build_user_prompt(
