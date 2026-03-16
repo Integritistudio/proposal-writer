@@ -7,6 +7,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+import psycopg2
+from psycopg2.extras import RealDictCursor, Json
+
 from config import (
     DOCS_DIR,
     WINNING_PROPOSALS_DOC,
@@ -126,24 +129,68 @@ def get_proposals_for_rating(user_id: str | None = None) -> list:
     Return list of proposals to rate: one per job (latest only if rewritten multiple times).
     Each item: { ts, job_snippet, proposal_snippet, proposal_full, rating }.
     """
-    if not PROPOSALS_LOG_PATH.exists():
-        return []
-    lines = []
-    try:
-        with open(PROPOSALS_LOG_PATH, "r", encoding="utf-8") as f:
-            lines = f.readlines()
-    except Exception:
-        return []
     parsed = []
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
+
+    # Prefer Postgres if configured.
+    db_url = os.getenv("DATABASE_URL") or os.getenv("UPWORK_DATABASE_URL")
+    if db_url:
         try:
-            data = json.loads(line)
-            parsed.append(data)
+            conn = _get_db_conn()
         except Exception:
-            continue
+            conn = None
+        if conn is not None:
+            try:
+                with conn:
+                    with conn.cursor() as cur:
+                        if user_id:
+                            cur.execute(
+                                """
+                                SELECT ts, job_post, proposal, tech_stacks, user_id
+                                FROM proposals
+                                WHERE user_id = %s
+                                ORDER BY ts DESC;
+                                """,
+                                (user_id,),
+                            )
+                        else:
+                            cur.execute(
+                                """
+                                SELECT ts, job_post, proposal, tech_stacks, user_id
+                                FROM proposals
+                                ORDER BY ts DESC;
+                                """
+                            )
+                        rows = cur.fetchall() or []
+                        for row in rows:
+                            parsed.append({
+                                "ts": row["ts"],
+                                "job_post": row["job_post"],
+                                "proposal": row["proposal"],
+                                "tech_stacks": row.get("tech_stacks") or {},
+                                "user_id": row.get("user_id") or "",
+                            })
+            finally:
+                conn.close()
+
+    # Fallback to JSONL file (local/dev)
+    if not parsed:
+        if not PROPOSALS_LOG_PATH.exists():
+            return []
+        lines = []
+        try:
+            with open(PROPOSALS_LOG_PATH, "r", encoding="utf-8") as f:
+                lines = f.readlines()
+        except Exception:
+            return []
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                data = json.loads(line)
+                parsed.append(data)
+            except Exception:
+                continue
     if not parsed:
         return []
     # Group by job_post (exact), keep latest (max ts) per job
@@ -270,6 +317,48 @@ def ensure_learning_dir():
     PROPOSALS_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
+def _get_db_conn():
+    """
+    Get a PostgreSQL connection using DATABASE_URL / UPWORK_DATABASE_URL.
+    Used for persisting proposals so they survive deploys.
+    """
+    db_url = os.getenv("DATABASE_URL") or os.getenv("UPWORK_DATABASE_URL")
+    if not db_url:
+        raise RuntimeError("DATABASE_URL or UPWORK_DATABASE_URL must be set for proposals DB.")
+    conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+    conn.autocommit = True
+    return conn
+
+
+def init_proposals_db() -> None:
+    """
+    Ensure the proposals table exists in Postgres.
+    """
+    db_url = os.getenv("DATABASE_URL") or os.getenv("UPWORK_DATABASE_URL")
+    if not db_url:
+        # Allow running locally without DB; JSONL logging will still work.
+        return
+    conn = _get_db_conn()
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS proposals (
+                        id SERIAL PRIMARY KEY,
+                        ts TEXT NOT NULL,
+                        user_id TEXT,
+                        job_post TEXT NOT NULL,
+                        proposal TEXT NOT NULL,
+                        tech_stacks JSONB,
+                        outcome TEXT
+                    );
+                    """
+                )
+    finally:
+        conn.close()
+
+
 def save_relevant_example(job_post: str, relevant_example: str, tech_stacks: dict):
     """Append one relevant-example record so the agent remembers it for similar jobs."""
     ensure_learning_dir()
@@ -284,18 +373,50 @@ def save_relevant_example(job_post: str, relevant_example: str, tech_stacks: dic
 
 
 def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str = None, user_id: str | None = None):
-    """Append one proposal to the log. Outcome can be set later (e.g. won/lost)."""
-    ensure_learning_dir()
+    """
+    Append one proposal to the JSONL log (for local use) and also
+    store it in Postgres (for persistence across deploys).
+    Outcome can be set later (e.g. won/lost).
+    """
+    ts = datetime.utcnow().isoformat() + "Z"
     record = {
-        "ts": datetime.utcnow().isoformat() + "Z",
+        "ts": ts,
         "job_post": job_post,
         "proposal": proposal,
         "tech_stacks": tech_stacks,
         "outcome": outcome,
         "user_id": user_id,
     }
-    with open(PROPOSALS_LOG_PATH, "a", encoding="utf-8") as f:
-        f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    # JSONL log (local/dev usage)
+    try:
+        ensure_learning_dir()
+        with open(PROPOSALS_LOG_PATH, "a", encoding="utf-8") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    except Exception:
+        # Don't fail proposal generation if JSONL logging fails.
+        pass
+
+    # Postgres log (Render / persistent)
+    db_url = os.getenv("DATABASE_URL") or os.getenv("UPWORK_DATABASE_URL")
+    if not db_url:
+        return
+    try:
+        conn = _get_db_conn()
+    except Exception:
+        return
+    try:
+        with conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO proposals (ts, user_id, job_post, proposal, tech_stacks, outcome)
+                    VALUES (%s, %s, %s, %s, %s, %s);
+                    """,
+                    (ts, user_id, job_post, proposal, Json(tech_stacks or {}), outcome),
+                )
+    finally:
+        conn.close()
 
 
 def build_system_prompt(recent_context: str) -> str:

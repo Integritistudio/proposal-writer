@@ -14,17 +14,19 @@ except ImportError:
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
-from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating, load_ratings
+from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating, load_ratings, init_proposals_db
 from config import PROPOSALS_LOG_PATH
 from auth import create_user, authenticate, get_user, get_all_users, init_auth_db
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key-change-me")
 
-# Initialize auth database (users table). If DB is unavailable, app still starts but auth will fail.
+# Initialize auth database (users table) and proposals table.
 try:
     init_auth_db()
+    init_proposals_db()
 except Exception:
+    # In production you'd log this; app can still run without DB but auth/logging will be degraded.
     pass
 
 
