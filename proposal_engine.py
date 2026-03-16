@@ -79,9 +79,8 @@ def summarize_websites_and_tech() -> dict:
     except Exception:
         return {"websites": [], "tech_stacks": []}
 
+    # Detect which tech stacks appear anywhere in the docs
     combined = (winning_text or "") + "\n" + (portfolio_text or "")
-    websites = extract_urls_from_docs(combined)
-
     text_lower = combined.lower()
     techs = []
     for key in TECH_URLS.keys():
@@ -95,30 +94,36 @@ def summarize_websites_and_tech() -> dict:
             seen.add(t)
             tech_unique.append(t)
 
-    # Group portfolio projects by tech stack, with URLs and description snippets
+    # Group portfolio projects by tech stack, with URLs and description snippets.
+    # Treat each line that contains a URL as a separate project entry.
     projects_by_tech: dict[str, list[dict]] = {t: [] for t in tech_unique}
-    # Simple heuristic: split portfolio text into blocks separated by blank lines
-    blocks = re.split(r"\n\s*\n", portfolio_text or "")
-    for block in blocks:
-        block_clean = block.strip()
-        if not block_clean:
+    all_urls: list[str] = []
+    for raw_line in (portfolio_text or "").splitlines():
+        line = raw_line.strip()
+        if not line:
             continue
-        block_urls = extract_urls_from_docs(block_clean)
-        if not block_urls:
+        line_urls = extract_urls_from_docs(line)
+        if not line_urls:
             continue
-        block_lower = block_clean.lower()
-        # First line or first 140 chars as description
-        first_line = block_clean.split("\n", 1)[0].strip()
-        desc = first_line if first_line else block_clean[:140]
+        all_urls.extend(line_urls)
+        line_lower = line.lower()
         for key in tech_unique:
-            if key in block_lower:
+            if key in line_lower:
                 projects_by_tech.setdefault(key, []).append({
-                    "description": desc,
-                    "urls": block_urls,
+                    "description": line,
+                    "urls": line_urls,
                 })
 
+    # Global unique websites list (for possible future use)
+    websites_seen = []
+    websites_set = set()
+    for u in all_urls:
+        if u not in websites_set:
+            websites_set.add(u)
+            websites_seen.append(u)
+
     return {
-        "websites": websites,
+        "websites": websites_seen,
         "tech_stacks": tech_unique,
         "projects_by_tech": projects_by_tech,
     }
