@@ -13,6 +13,8 @@ except ImportError:
     pass
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+import psycopg2
+from psycopg2.extras import RealDictCursor
 
 from proposal_engine import (
     generate_proposal,
@@ -158,7 +160,47 @@ def admin_dashboard():
     users = get_all_users()
     user_email_by_id = {uid: u.get("email") for uid, u in users.items()}
 
-    if PROPOSALS_LOG_PATH.exists():
+    # Prefer Postgres proposals table if available
+    db_url = os.getenv("DATABASE_URL") or os.getenv("UPWORK_DATABASE_URL")
+    used_db = False
+    if db_url:
+        try:
+            conn = psycopg2.connect(db_url, cursor_factory=RealDictCursor)
+            conn.autocommit = True
+        except Exception:
+            conn = None
+        if conn is not None:
+            used_db = True
+            try:
+                with conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT ts, job_post, proposal, user_id
+                            FROM proposals
+                            ORDER BY ts DESC;
+                            """
+                        )
+                        rows = cur.fetchall() or []
+                        for row in rows:
+                            ts = row["ts"] or ""
+                            job = (row["job_post"] or "").strip()
+                            proposal_text = (row["proposal"] or "").strip()
+                            uid = row.get("user_id") or ""
+                            proposals.append({
+                                "ts": ts,
+                                "job_snippet": job[:200] + ("..." if len(job) > 200 else ""),
+                                "proposal_snippet": proposal_text[:250] + ("..." if len(proposal_text) > 250 else ""),
+                                "proposal_full": proposal_text,
+                                "rating": ratings.get(ts),
+                                "user_id": uid,
+                                "user_email": user_email_by_id.get(uid, None),
+                            })
+            finally:
+                conn.close()
+
+    # Fallback to JSONL log if DB is not used/available
+    if not used_db and PROPOSALS_LOG_PATH.exists():
         try:
             with open(PROPOSALS_LOG_PATH, "r", encoding="utf-8") as f:
                 lines = f.readlines()
