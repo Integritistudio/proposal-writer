@@ -95,7 +95,33 @@ def summarize_websites_and_tech() -> dict:
             seen.add(t)
             tech_unique.append(t)
 
-    return {"websites": websites, "tech_stacks": tech_unique}
+    # Group portfolio projects by tech stack, with URLs and description snippets
+    projects_by_tech: dict[str, list[dict]] = {t: [] for t in tech_unique}
+    # Simple heuristic: split portfolio text into blocks separated by blank lines
+    blocks = re.split(r"\n\s*\n", portfolio_text or "")
+    for block in blocks:
+        block_clean = block.strip()
+        if not block_clean:
+            continue
+        block_urls = extract_urls_from_docs(block_clean)
+        if not block_urls:
+            continue
+        block_lower = block_clean.lower()
+        # First line or first 140 chars as description
+        first_line = block_clean.split("\n", 1)[0].strip()
+        desc = first_line if first_line else block_clean[:140]
+        for key in tech_unique:
+            if key in block_lower:
+                projects_by_tech.setdefault(key, []).append({
+                    "description": desc,
+                    "urls": block_urls,
+                })
+
+    return {
+        "websites": websites,
+        "tech_stacks": tech_unique,
+        "projects_by_tech": projects_by_tech,
+    }
 
 
 def get_relevant_examples_for_job(job_post: str, tech_stacks: dict, max_entries: int = 15) -> str:

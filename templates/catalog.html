@@ -68,31 +68,32 @@
     <strong>Upwork Winning Proposals</strong> and <strong>Portfolio</strong> documents.
   </p>
 
-  <div class="section">
-    <h2>Websites</h2>
-    {% if summary.websites %}
-      <ul>
-        {% for url in summary.websites %}
-          <li>{{ url }}</li>
-        {% endfor %}
-      </ul>
-    {% else %}
-      <p class="empty">No websites were detected in the docs.</p>
-    {% endif %}
-  </div>
-
-  <div class="section">
-    <h2>Tech stacks</h2>
-    {% if summary.tech_stacks %}
-      <ul>
-        {% for tech in summary.tech_stacks %}
-          <li>{{ tech }}</li>
-        {% endfor %}
-      </ul>
-    {% else %}
+  {% if summary.tech_stacks %}
+    {% for tech in summary.tech_stacks %}
+      <div class="section">
+        <h2>{{ tech|title }}</h2>
+        {% set projects = summary.projects_by_tech.get(tech) %}
+        {% if projects %}
+          <ul>
+            {% for p in projects %}
+              <li>
+                <strong>{{ p.description }}</strong><br>
+                {% for url in p.urls %}
+                  <span style="font-size: 0.82rem; color: #2563eb;">{{ url }}</span>{% if not loop.last %}, {% endif %}
+                {% endfor %}
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty">No specific projects detected for this stack yet.</p>
+        {% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <div class="section">
       <p class="empty">No tech stacks were detected in the docs.</p>
-    {% endif %}
-  </div>
+    </div>
+  {% endif %}
 </body>
 </html>
 
