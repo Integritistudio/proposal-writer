@@ -14,7 +14,14 @@ except ImportError:
 
 from flask import Flask, render_template, request, jsonify, redirect, url_for, session
 
-from proposal_engine import generate_proposal, get_proposals_for_rating, save_rating, load_ratings, init_proposals_db
+from proposal_engine import (
+    generate_proposal,
+    get_proposals_for_rating,
+    save_rating,
+    load_ratings,
+    init_proposals_db,
+    summarize_websites_and_tech,
+)
 from config import PROPOSALS_LOG_PATH
 from auth import create_user, authenticate, get_user, get_all_users, init_auth_db
 
@@ -187,6 +194,17 @@ def admin_dashboard():
         user_counts[email] = user_counts.get(email, 0) + 1
 
     return render_template("admin.html", user=user, proposals=proposals, user_counts=user_counts)
+
+
+@app.route("/catalog")
+def catalog():
+    """
+    Public page: summarized websites and tech stacks from the docs.
+    """
+    summary = summarize_websites_and_tech()
+    user_id = session.get("user_id")
+    user = get_user(user_id) if user_id else None
+    return render_template("catalog.html", user=user, summary=summary)
 
 
 if __name__ == "__main__":

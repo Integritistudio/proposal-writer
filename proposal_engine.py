@@ -64,6 +64,40 @@ def detect_tech_stacks(text: str) -> dict:
     return found
 
 
+def summarize_websites_and_tech() -> dict:
+    """
+    Summarize websites and tech stacks from the winning proposals and portfolio docs.
+
+    Returns:
+      {
+        "websites": [list of unique URLs],
+        "tech_stacks": [list of unique tech stack keys detected in the docs],
+      }
+    """
+    try:
+        winning_text, portfolio_text = load_brain()
+    except Exception:
+        return {"websites": [], "tech_stacks": []}
+
+    combined = (winning_text or "") + "\n" + (portfolio_text or "")
+    websites = extract_urls_from_docs(combined)
+
+    text_lower = combined.lower()
+    techs = []
+    for key in TECH_URLS.keys():
+        if key in text_lower:
+            techs.append(key)
+    # Dedupe while preserving order
+    seen = set()
+    tech_unique = []
+    for t in techs:
+        if t not in seen:
+            seen.add(t)
+            tech_unique.append(t)
+
+    return {"websites": websites, "tech_stacks": tech_unique}
+
+
 def get_relevant_examples_for_job(job_post: str, tech_stacks: dict, max_entries: int = 15) -> str:
     """Load saved relevant examples that match this job (by tech stack overlap); agent uses these for similar jobs."""
     if not RELEVANT_EXAMPLES_LOG_PATH.exists():
