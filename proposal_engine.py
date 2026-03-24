@@ -324,7 +324,10 @@ def get_high_rated_proposals_context(min_rating: int = 6, max_entries: int = 5) 
     if not examples:
         return ""
     parts = [f"High-rated proposal (rating {ex['rating']}): {ex['proposal_snippet']}" for ex in examples]
-    return "Proposals that got a lead or were viewed (learn from their style): " + " | ".join(parts)
+    return (
+        "Proposals that got a lead or were viewed (secondary hints only—openings and structure must still match WINNING PROPOSALS; ignore generic 'opportunity' openings here): "
+        + " | ".join(parts)
+    )
 
 
 def get_recent_proposals_context(max_entries: int = 5) -> str:
@@ -485,18 +488,23 @@ def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str =
 
 
 def build_system_prompt(recent_context: str) -> str:
-    return """You are an expert Upwork proposal writer acting as the BD team's voice. Your core learning comes from the winning proposals document and the portfolio document provided below.
+    return """You are an expert Upwork proposal writer acting as the BD team's voice. Your core learning comes from the winning proposals document and the portfolio document provided in the user message.
 
 STRICT RULES:
-- Use the winning proposals as the ONLY pattern for structure, tone, and how to present the solution. Copy that style.
+- The WINNING PROPOSALS block in the user message is the single source of truth for tone, sentence rhythm, structure, and how openings and closings are written. Match that text closely—not generic freelance pitch habits.
 - Do NOT use AI jargon. Do NOT mention being an AI or language model.
 - Do NOT use icons in headings. Do NOT use divider lines (no --- or ===).
 - Do NOT use markdown or brackets for project/company names. Never write like **Vino Site** [Vino Site] or *Ryp Golf* [Ryp Golf]. Reference portfolio items in plain text only (e.g. "Vino Site, Ryp Golf" or "such as Vino Site and Ryp Golf").
 - Add 1–3 relevant portfolio items that match the job. Name them in plain text only—no bold, no asterisks, no square brackets.
 - After each relevant example you mention, add that example's website URL (the live store/site URL from the portfolio or winning proposals, e.g. coloritto.co, urthlabs.com). Do NOT add tech stack product URLs (e.g. shopify.com, gempages.com) in the proposal—only the client/store or project website URLs (e.g. coloritto.co) after the example.
-- Write like a human: clear, confident, customized. No fluff.
+- Write like a human: clear, confident, customized. No fluff or hype.
 - Follow the same structure as in the winning proposals (opening, understanding, approach, examples, closing).
-- Open the proposal the same way the winning proposals open. Do NOT start with generic phrases like "I've reviewed your project", "I have read your job description", "I’ve gone through your requirements", or similar boilerplate. Instead, mirror the style and opening patterns from the winning proposals document."""
+
+OPENINGS (critical):
+- Before writing, study how the first 1–2 sentences of several proposals inside WINNING PROPOSALS actually read (length, specificity, whether they name the work, whether they lead with understanding). Your first sentences must follow those patterns when adapted to this job.
+- NEVER start with (or use in the opening paragraph) clichés such as: "I see a fantastic opportunity", "I see a wonderful opportunity", "I see a compelling opportunity", "I see an exciting opportunity", "I see a great opportunity", or any "I see a/an … opportunity" line. Do not substitute synonyms—avoid that template entirely.
+- Do NOT start with: "I've reviewed your project", "I have read your job description", "I've gone through your requirements", "I reviewed your posting", or similar meta lines about reading the post—unless the winning proposals themselves routinely do that (if they do, match their exact wording style, not a new generic variant).
+- If RECENT PROPOSALS or high-rated snippets appear in the user message, they are secondary. For openings and overall structure, prefer WINNING PROPOSALS. Ignore recent snippets that contradict the winning-doc style."""
 
 
 def build_user_prompt(
@@ -516,11 +524,13 @@ def build_user_prompt(
     urls_block = "\n".join(urls_from_docs[:40]) if urls_from_docs else ""
 
     user = f"""
-WINNING PROPOSALS (your primary pattern — match this structure and tone):
+WINNING PROPOSALS (your primary pattern — match structure, tone, sentence length, and how openings/closings are phrased):
 
 \"\"\"
 {winning_text[:12000]}
 \"\"\"
+
+OPENING CHECK: Your first 1–2 sentences must be clearly modeled on openings from the WINNING PROPOSALS block above (same level of directness and specificity). Do not use any "I see a/an … opportunity" phrasing. Do not open with meta commentary about having read the job post unless those winning samples do.
 
 PORTFOLIO (use relevant items in the proposal; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
 
@@ -537,7 +547,7 @@ Website URLs from the winning proposals and portfolio (use these after the relev
 """
     if recent_context:
         user += f"""
-RECENT PROPOSALS (stay consistent with these):
+RECENT PROPOSALS (optional voice hints only—do NOT copy their openings if they use generic "opportunity" or "I've reviewed" lines; WINNING PROPOSALS above win for structure and tone):
 {recent_context}
 
 """
@@ -577,10 +587,10 @@ Follow these user instructions carefully while still following all the strict ru
 
 """
     if relevant_example_override:
-        user += """TASK: Write one complete Upwork proposal. Use the winning proposals' structure and tone. Use the relevant examples specified above. After each example, add its website URL (e.g. coloritto.co, urthlabs.com) from the portfolio—not tech stack URLs. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
+        user += """TASK: Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style (never "I see a/an … opportunity"). Use the relevant examples specified above. After each example, add its website URL (e.g. coloritto.co, urthlabs.com) from the portfolio—not tech stack URLs. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
     else:
         user += """TASK:
-1. Write one complete Upwork proposal. Use the winning proposals' structure and tone. Reference 1–3 relevant portfolio items by plain name only (no ** or [ ] or *). After each example you mention, add that project's website URL from the portfolio or winning proposals (e.g. coloritto.co, urthlabs.com)—do NOT add tech product URLs like shopify.com or gempages.com. No icons in headings, no divider lines, no AI jargon.
+1. Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style—never "I see a/an … opportunity" or similar hype openings. Reference 1–3 relevant portfolio items by plain name only (no ** or [ ] or *). After each example you mention, add that project's website URL from the portfolio or winning proposals (e.g. coloritto.co, urthlabs.com)—do NOT add tech product URLs like shopify.com or gempages.com. No icons in headings, no divider lines, no AI jargon.
 2. After the proposal, on a new line, write exactly this line (replace X with the one or two portfolio items that are the best fit for this job): Note - Relevant example for this job: X
 Output the proposal first, then that Note line. The agent will remember the relevant example for similar jobs."""
 
