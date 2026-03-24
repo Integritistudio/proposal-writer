@@ -21,6 +21,11 @@ from config import (
     OPENAI_MODEL,
 )
 
+# Minimum distinct portfolio projects to name in each generated proposal (when enough exist in the portfolio doc).
+MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL = 4
+# Characters of portfolio doc injected into the prompt (raise if you need more projects visible to the model).
+PORTFOLIO_PROMPT_CHAR_LIMIT = 14000
+
 
 def read_docx(path: Path) -> str:
     """Read a .docx file into plain text."""
@@ -488,14 +493,15 @@ def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str =
 
 
 def build_system_prompt(recent_context: str) -> str:
-    return """You are an expert Upwork proposal writer acting as the BD team's voice. Your core learning comes from the winning proposals document and the portfolio document provided in the user message.
+    n = MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL
+    return f"""You are an expert Upwork proposal writer acting as the BD team's voice. Your core learning comes from the winning proposals document and the portfolio document provided in the user message.
 
 STRICT RULES:
 - The WINNING PROPOSALS block in the user message is the single source of truth for tone, sentence rhythm, structure, and how openings and closings are written. Match that text closely—not generic freelance pitch habits.
 - Do NOT use AI jargon. Do NOT mention being an AI or language model.
 - Do NOT use icons in headings. Do NOT use divider lines (no --- or ===).
 - Do NOT use markdown or brackets for project/company names. Never write like **Vino Site** [Vino Site] or *Ryp Golf* [Ryp Golf]. Reference portfolio items in plain text only (e.g. "Vino Site, Ryp Golf" or "such as Vino Site and Ryp Golf").
-- Add 1–3 relevant portfolio items that match the job. Name them in plain text only—no bold, no asterisks, no square brackets.
+- Include at least {n} distinct, relevant portfolio examples that match the job (by plain project/site name). Add more when they clearly strengthen the pitch—do not stop at two or three. If the PORTFOLIO text truly contains fewer than {n} strong matches, cite every strong match you have; never invent projects. Name them in plain text only—no bold, no asterisks, no square brackets.
 - After each relevant example you mention, add that example's website URL (the live store/site URL from the portfolio or winning proposals, e.g. coloritto.co, urthlabs.com). Do NOT add tech stack product URLs (e.g. shopify.com, gempages.com) in the proposal—only the client/store or project website URLs (e.g. coloritto.co) after the example.
 - Write like a human: clear, confident, customized. No fluff or hype.
 - Follow the same structure as in the winning proposals (opening, understanding, approach, examples, closing).
@@ -532,10 +538,10 @@ WINNING PROPOSALS (your primary pattern — match structure, tone, sentence leng
 
 OPENING CHECK: Your first 1–2 sentences must be clearly modeled on openings from the WINNING PROPOSALS block above (same level of directness and specificity). Do not use any "I see a/an … opportunity" phrasing. Do not open with meta commentary about having read the job post unless those winning samples do.
 
-PORTFOLIO (use relevant items in the proposal; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
+PORTFOLIO (use relevant items in the proposal; name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct projects when enough are listed below; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
 
 \"\"\"
-{portfolio_text[:8000]}
+{portfolio_text[:PORTFOLIO_PROMPT_CHAR_LIMIT]}
 \"\"\"
 
 """
@@ -563,7 +569,8 @@ RECENT PROPOSALS (optional voice hints only—do NOT copy their openings if they
 """
     if relevant_example_override:
         user += f"""
-You MUST use these relevant examples in this proposal (the user specified them): {relevant_example_override}
+You MUST include the user-specified examples below in this proposal: {relevant_example_override}
+Also pull additional relevant projects from the PORTFOLIO until the proposal names at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct portfolio projects in total (the specified ones count toward that minimum).
 After each example, add that project's website URL from the portfolio/winning proposals (e.g. coloritto.co, urthlabs.com). Do NOT add tech product URLs like shopify.com or gempages.com.
 
 """
@@ -587,10 +594,10 @@ Follow these user instructions carefully while still following all the strict ru
 
 """
     if relevant_example_override:
-        user += """TASK: Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style (never "I see a/an … opportunity"). Use the relevant examples specified above. After each example, add its website URL (e.g. coloritto.co, urthlabs.com) from the portfolio—not tech stack URLs. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
+        user += f"""TASK: Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style (never "I see a/an … opportunity"). The body must name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct portfolio projects in total, including every user-specified example above, each with its site URL. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
     else:
-        user += """TASK:
-1. Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style—never "I see a/an … opportunity" or similar hype openings. Reference 1–3 relevant portfolio items by plain name only (no ** or [ ] or *). After each example you mention, add that project's website URL from the portfolio or winning proposals (e.g. coloritto.co, urthlabs.com)—do NOT add tech product URLs like shopify.com or gempages.com. No icons in headings, no divider lines, no AI jargon.
+        user += f"""TASK:
+1. Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style—never "I see a/an … opportunity" or similar hype openings. Name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct relevant portfolio projects by plain name only (no ** or [ ] or *). Add more than {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} when it helps. After each example you mention, add that project's website URL from the portfolio or winning proposals (e.g. coloritto.co, urthlabs.com)—do NOT add tech product URLs like shopify.com or gempages.com. No icons in headings, no divider lines, no AI jargon.
 2. After the proposal, on a new line, write exactly this line (replace X with the one or two portfolio items that are the best fit for this job): Note - Relevant example for this job: X
 Output the proposal first, then that Note line. The agent will remember the relevant example for similar jobs."""
 
