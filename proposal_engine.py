@@ -703,7 +703,7 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
     Returns { "proposal": str, "tech_stacks": dict, "relevant_example": str, "error": str or None }.
     """
     try:
-    winning_text, portfolio_text = load_brain()
+        winning_text, portfolio_text = load_brain()
     except FileNotFoundError as e:
         return {"proposal": "", "tech_stacks": {}, "relevant_example": "", "error": str(e)}
     except Exception as e:
