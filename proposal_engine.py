@@ -6,6 +6,7 @@ import os
 import re
 from datetime import datetime
 from pathlib import Path
+from collections import Counter
 
 import psycopg2
 from psycopg2.extras import RealDictCursor, Json
@@ -25,6 +26,97 @@ from config import (
 MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL = 4
 # Characters of portfolio doc injected into the prompt (raise if you need more projects visible to the model).
 PORTFOLIO_PROMPT_CHAR_LIMIT = 14000
+WINNING_PROMPT_CHAR_LIMIT = 12000
+TOP_WINNING_SNIPPETS = 10
+TOP_PORTFOLIO_SNIPPETS = 20
+
+
+def _tokenize(text: str) -> list:
+    """Lowercase tokenization for lightweight relevance scoring."""
+    if not text:
+        return []
+    return re.findall(r"[a-z0-9][a-z0-9\+\.\-#]*", text.lower())
+
+
+def _split_text_into_snippets(text: str, lines_per_snippet: int = 4) -> list:
+    """
+    Split plain text into snippets.
+    Uses non-empty lines and groups them to preserve local context.
+    """
+    lines = [ln.strip() for ln in (text or "").splitlines() if ln.strip()]
+    if not lines:
+        return []
+    snippets = []
+    for i in range(0, len(lines), lines_per_snippet):
+        chunk = " ".join(lines[i : i + lines_per_snippet]).strip()
+        if chunk:
+            snippets.append(chunk)
+    return snippets
+
+
+def _score_snippet_for_job(snippet: str, job_tokens: set, tech_tokens: set, job_counter: Counter) -> float:
+    """
+    Score a snippet against the job post.
+    - token overlap
+    - weighted matches for repeated job terms
+    - bonus for explicit tech tokens
+    """
+    if not snippet:
+        return 0.0
+    snippet_tokens = _tokenize(snippet)
+    if not snippet_tokens:
+        return 0.0
+    snippet_token_set = set(snippet_tokens)
+    overlap = len(snippet_token_set & job_tokens)
+    weighted_overlap = sum(job_counter.get(t, 0) for t in snippet_token_set)
+    tech_overlap = len(snippet_token_set & tech_tokens)
+    return float(overlap) + (0.15 * weighted_overlap) + (1.2 * tech_overlap)
+
+
+def get_top_relevant_snippets(
+    source_text: str,
+    job_post: str,
+    tech_stacks: dict,
+    max_snippets: int,
+    char_limit: int,
+    lines_per_snippet: int = 4,
+) -> str:
+    """
+    Return the highest-scoring snippets from source_text for this job.
+    Keeps prompt focused by sending only matched context.
+    """
+    snippets = _split_text_into_snippets(source_text, lines_per_snippet=lines_per_snippet)
+    if not snippets:
+        return ""
+
+    job_tokens_raw = _tokenize(job_post or "")
+    if not job_tokens_raw:
+        # If we cannot score, return a small leading section as fallback.
+        fallback = "\n".join(f"- {s}" for s in snippets[:max_snippets])
+        return fallback[:char_limit]
+
+    job_counter = Counter(job_tokens_raw)
+    job_tokens = set(job_tokens_raw)
+    tech_tokens = set()
+    for k in tech_stacks.keys():
+        tech_tokens.update(_tokenize(k))
+
+    scored = []
+    for idx, snippet in enumerate(snippets):
+        score = _score_snippet_for_job(snippet, job_tokens, tech_tokens, job_counter)
+        if score > 0:
+            scored.append((score, idx, snippet))
+
+    # If no overlap was found, still provide a short fallback.
+    if not scored:
+        fallback = "\n".join(f"- {s}" for s in snippets[:max_snippets])
+        return fallback[:char_limit]
+
+    # Sort by score desc, preserve original order for ties.
+    scored.sort(key=lambda x: (-x[0], x[1]))
+    selected = [s for _, _, s in scored[:max_snippets]]
+    out = "\n".join(f"- {s}" for s in selected)
+    return out[:char_limit]
 
 
 def read_docx(path: Path) -> str:
@@ -538,7 +630,7 @@ WINNING PROPOSALS (your primary pattern — match structure, tone, sentence leng
 
 OPENING CHECK: Your first 1–2 sentences must be clearly modeled on openings from the WINNING PROPOSALS block above (same level of directness and specificity). Do not use any "I see a/an … opportunity" phrasing. Do not open with meta commentary about having read the job post unless those winning samples do.
 
-PORTFOLIO (use relevant items in the proposal; name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct projects when enough are listed below; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
+PORTFOLIO (matched items for this job; name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct projects when enough are listed below; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
 
 \"\"\"
 {portfolio_text[:PORTFOLIO_PROMPT_CHAR_LIMIT]}
@@ -611,13 +703,29 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
     Returns { "proposal": str, "tech_stacks": dict, "relevant_example": str, "error": str or None }.
     """
     try:
-        winning_text, portfolio_text = load_brain()
+    winning_text, portfolio_text = load_brain()
     except FileNotFoundError as e:
         return {"proposal": "", "tech_stacks": {}, "relevant_example": "", "error": str(e)}
     except Exception as e:
         return {"proposal": "", "tech_stacks": {}, "relevant_example": "", "error": str(e)}
 
     tech_stacks = detect_tech_stacks(job_post)
+    matched_winning_text = get_top_relevant_snippets(
+        source_text=winning_text,
+        job_post=job_post,
+        tech_stacks=tech_stacks,
+        max_snippets=TOP_WINNING_SNIPPETS,
+        char_limit=WINNING_PROMPT_CHAR_LIMIT,
+        lines_per_snippet=4,
+    )
+    matched_portfolio_text = get_top_relevant_snippets(
+        source_text=portfolio_text,
+        job_post=job_post,
+        tech_stacks=tech_stacks,
+        max_snippets=TOP_PORTFOLIO_SNIPPETS,
+        char_limit=PORTFOLIO_PROMPT_CHAR_LIMIT,
+        lines_per_snippet=3,
+    )
     recent_context = get_recent_proposals_context()
     relevant_examples_context = get_relevant_examples_for_job(job_post, tech_stacks)
     high_rated_context = get_high_rated_proposals_context()
@@ -630,8 +738,8 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
     user = build_user_prompt(
         job_post,
         (user_instructions or "").strip(),
-        winning_text,
-        portfolio_text,
+        matched_winning_text or winning_text[:WINNING_PROMPT_CHAR_LIMIT],
+        matched_portfolio_text or portfolio_text[:PORTFOLIO_PROMPT_CHAR_LIMIT],
         tech_stacks,
         recent_context,
         urls_from_docs,
