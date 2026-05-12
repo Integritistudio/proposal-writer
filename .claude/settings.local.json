@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//Users/muhammad/Downloads/**)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -b /tmp/c.txt -X POST http://127.0.0.1:5001/generate -H 'Content-Type: application/json' -d '{ *)",
+      "Read(//Applications/Google Chrome.app/Contents/MacOS/**)",
+      "Bash(\"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome\" --version)",
+      "Bash(python3 -c \"import platform; print\\('Python arch:', platform.machine\\(\\)\\)\")",
+      "Bash(python3 -c \"import undetected_chromedriver; print\\('uc version:', undetected_chromedriver.__version__\\)\")",
+      "Bash(pip3 show *)",
+      "Bash(curl -L https://storage.googleapis.com/chrome-for-testing-public/148.0.7778.97/mac-arm64/chromedriver-mac-arm64.zip -o /tmp/chromedriver-arm64.zip)",
+      "Bash(unzip -q /tmp/chromedriver-arm64.zip -d /tmp/cd-arm64/)",
+      "Bash(cp /tmp/cd-arm64/chromedriver-mac-arm64/chromedriver '/Users/muhammad/Library/Application Support/undetected_chromedriver/undetected_chromedriver')",
+      "Bash(chmod +x \"/Users/muhammad/Library/Application Support/undetected_chromedriver/undetected_chromedriver\")",
+      "Bash(chflags uchg *)",
+      "Bash(\"/Users/muhammad/Library/Application Support/undetected_chromedriver/undetected_chromedriver\" --version)",
+      "Bash(chflags nouchg *)",
+      "Bash(cp /tmp/cd-arm64/chromedriver-mac-arm64/chromedriver '/Users/muhammad/Library/Application Support/undetected_chromedriver/undetected/chromedriver-mac-x64/chromedriver')",
+      "Bash(chmod +x \"/Users/muhammad/Library/Application Support/undetected_chromedriver/undetected/chromedriver-mac-x64/chromedriver\")"
+    ]
+  }
+}

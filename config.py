@@ -8,6 +8,7 @@ BASE_DIR = Path(__file__).resolve().parent
 DOCS_DIR = Path(os.getenv("UPWORK_DOCS_DIR", str(BASE_DIR)))
 WINNING_PROPOSALS_DOC = os.getenv("UPWORK_WINNING_DOC", "Upwork Winning Proposals.docx")
 PORTFOLIO_DOC = os.getenv("UPWORK_PORTFOLIO_DOC", "Portfolio.docx")
+QUICK_PHRASES_DOC = os.getenv("UPWORK_QUICK_PHRASES_DOC", "Quick Proposal Phrases 2.docx")
 
 # Learning log: every generated proposal is appended here
 LEARNING_DIR = BASE_DIR / "learning"
@@ -42,5 +43,5 @@ TECH_URLS = {
     "api": "https://www.w3.org/apis/",
 }
 
-# LLM: set OPENAI_API_KEY for OpenAI; or use another provider in proposal_engine.py
-OPENAI_MODEL = os.getenv("UPWORK_OPENAI_MODEL", "gpt-4o-mini")
+# LLM: set ANTHROPIC_API_KEY in the environment or .env file
+CLAUDE_MODEL = os.getenv("UPWORK_CLAUDE_MODEL", "claude-opus-4-7")

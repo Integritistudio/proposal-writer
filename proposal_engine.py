@@ -15,20 +15,23 @@ from config import (
     DOCS_DIR,
     WINNING_PROPOSALS_DOC,
     PORTFOLIO_DOC,
+    QUICK_PHRASES_DOC,
     PROPOSALS_LOG_PATH,
     RELEVANT_EXAMPLES_LOG_PATH,
     PROPOSAL_RATINGS_PATH,
     TECH_URLS,
-    OPENAI_MODEL,
+    CLAUDE_MODEL,
 )
 
-# Minimum distinct portfolio projects to name in each generated proposal (when enough exist in the portfolio doc).
-MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL = 4
-# Characters of portfolio doc injected into the prompt (raise if you need more projects visible to the model).
+# Minimum distinct portfolio projects to name in each generated proposal.
+MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL = 3
+# Characters of each doc injected into the prompt.
 PORTFOLIO_PROMPT_CHAR_LIMIT = 14000
 WINNING_PROMPT_CHAR_LIMIT = 12000
+QUICK_PHRASES_PROMPT_CHAR_LIMIT = 10000
 TOP_WINNING_SNIPPETS = 10
 TOP_PORTFOLIO_SNIPPETS = 20
+TOP_QUICK_PHRASES_SNIPPETS = 15
 
 
 def _tokenize(text: str) -> list:
@@ -133,12 +136,20 @@ def read_docx(path: Path) -> str:
 
 
 def load_brain():
-    """Load winning proposals and portfolio from disk. Always reads latest (keeps up to date)."""
+    """Load winning proposals, portfolio, and quick phrases from disk. Always reads latest."""
     winning_path = DOCS_DIR / WINNING_PROPOSALS_DOC
     portfolio_path = DOCS_DIR / PORTFOLIO_DOC
+    quick_phrases_path = DOCS_DIR / QUICK_PHRASES_DOC
     winning_text = read_docx(winning_path)
     portfolio_text = read_docx(portfolio_path)
-    return winning_text, portfolio_text
+    # Quick phrases doc is optional — don't hard-fail if missing
+    quick_phrases_text = ""
+    if quick_phrases_path.exists():
+        try:
+            quick_phrases_text = read_docx(quick_phrases_path)
+        except Exception:
+            quick_phrases_text = ""
+    return winning_text, portfolio_text, quick_phrases_text
 
 
 def extract_urls_from_docs(text: str) -> list:
@@ -172,12 +183,12 @@ def summarize_websites_and_tech() -> dict:
       }
     """
     try:
-        winning_text, portfolio_text = load_brain()
+        winning_text, portfolio_text, quick_phrases_text = load_brain()
     except Exception:
         return {"websites": [], "tech_stacks": []}
 
     # Detect which tech stacks appear anywhere in the docs
-    combined = (winning_text or "") + "\n" + (portfolio_text or "")
+    combined = (winning_text or "") + "\n" + (portfolio_text or "") + "\n" + (quick_phrases_text or "")
     text_lower = combined.lower()
     techs = []
     for key in TECH_URLS.keys():
@@ -286,7 +297,7 @@ def save_rating(ts: str, rating: int) -> None:
         json.dump(ratings, f, indent=2)
 
 
-def get_proposals_for_rating(user_id: str | None = None) -> list:
+def get_proposals_for_rating(user_id=None) -> list:
     """
     Return list of proposals to rate: one per job (latest only if rewritten multiple times).
     Each item: { ts, job_snippet, proposal_snippet, proposal_full, rating }.
@@ -462,7 +473,7 @@ def get_recent_proposals_context(max_entries: int = 5) -> str:
 
 
 def clean_proposal_format(proposal: str) -> str:
-    """Remove markdown-style project names like **Vino Site** [Vino Site] or *Ryp Golf* [Ryp Golf]; keep plain name."""
+    """Remove markdown formatting, em dashes, and duplicate project name brackets."""
     if not proposal:
         return proposal
     # Remove **Name** [Name] -> Name (same name in brackets after bold)
@@ -475,6 +486,10 @@ def clean_proposal_format(proposal: str) -> str:
     proposal = re.sub(r"\*([^*]+)\*", r"\1", proposal)
     # Remove standalone [Name] when it duplicates the name before it (e.g. "Vino Site [Vino Site]" -> "Vino Site")
     proposal = re.sub(r"([A-Za-z0-9\s&]+)\s*\[\1\]", r"\1", proposal)
+    # Replace em dashes (— U+2014 and – U+2013) with a plain comma+space or just strip them
+    proposal = proposal.replace("—", ",").replace("–", ",")
+    # Clean up any double commas or comma+space+comma artifacts
+    proposal = re.sub(r",\s*,", ",", proposal)
     return proposal
 
 
@@ -537,7 +552,7 @@ def save_relevant_example(job_post: str, relevant_example: str, tech_stacks: dic
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 
-def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str = None, user_id: str | None = None):
+def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str = None, user_id=None):
     """
     Append one proposal to the JSONL log (for local use) and also
     store it in Postgres (for persistence across deploys).
@@ -585,24 +600,212 @@ def log_proposal(job_post: str, proposal: str, tech_stacks: dict, outcome: str =
 
 
 def build_system_prompt(recent_context: str) -> str:
-    n = MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL
-    return f"""You are an expert Upwork proposal writer acting as the BD team's voice. Your core learning comes from the winning proposals document and the portfolio document provided in the user message.
+    return """You are an expert Upwork proposal writer for Haseeb, founder of Integriti and Integriti Studio — a full-service web development agency specialising in Shopify, Webflow, WordPress, Squarespace, and custom app development.
 
-STRICT RULES:
-- The WINNING PROPOSALS block in the user message is the single source of truth for tone, sentence rhythm, structure, and how openings and closings are written. Match that text closely—not generic freelance pitch habits.
-- Do NOT use AI jargon. Do NOT mention being an AI or language model.
-- Do NOT use icons in headings. Do NOT use divider lines (no --- or ===).
-- Do NOT use markdown or brackets for project/company names. Never write like **Vino Site** [Vino Site] or *Ryp Golf* [Ryp Golf]. Reference portfolio items in plain text only (e.g. "Vino Site, Ryp Golf" or "such as Vino Site and Ryp Golf").
-- Include at least {n} distinct, relevant portfolio examples that match the job (by plain project/site name). Add more when they clearly strengthen the pitch—do not stop at two or three. If the PORTFOLIO text truly contains fewer than {n} strong matches, cite every strong match you have; never invent projects. Name them in plain text only—no bold, no asterisks, no square brackets.
-- After each relevant example you mention, add that example's website URL (the live store/site URL from the portfolio or winning proposals, e.g. coloritto.co, urthlabs.com). Do NOT add tech stack product URLs (e.g. shopify.com, gempages.com) in the proposal—only the client/store or project website URLs (e.g. coloritto.co) after the example.
-- Write like a human: clear, confident, customized. No fluff or hype.
-- Follow the same structure as in the winning proposals (opening, understanding, approach, examples, closing).
+Every time a job post is given, you write a winning proposal in Haseeb's exact voice, tone, and structure — based on 30+ real winning proposals that have already landed clients. You never write generic proposals. Every proposal is targeted, specific, and tailored to that exact job.
 
-OPENINGS (critical):
-- Before writing, study how the first 1–2 sentences of several proposals inside WINNING PROPOSALS actually read (length, specificity, whether they name the work, whether they lead with understanding). Your first sentences must follow those patterns when adapted to this job.
-- NEVER start with (or use in the opening paragraph) clichés such as: "I see a fantastic opportunity", "I see a wonderful opportunity", "I see a compelling opportunity", "I see an exciting opportunity", "I see a great opportunity", or any "I see a/an … opportunity" line. Do not substitute synonyms—avoid that template entirely.
-- Do NOT start with: "I've reviewed your project", "I have read your job description", "I've gone through your requirements", "I reviewed your posting", or similar meta lines about reading the post—unless the winning proposals themselves routinely do that (if they do, match their exact wording style, not a new generic variant).
-- If RECENT PROPOSALS or high-rated snippets appear in the user message, they are secondary. For openings and overall structure, prefer WINNING PROPOSALS. Ignore recent snippets that contradict the winning-doc style."""
+---
+
+WHO HASEEB IS:
+- Certified Shopify Developer with 7+ years of hands-on experience
+- Full-stack web developer — Shopify, Webflow, WordPress, Squarespace, Wix, Next.js
+- Agency founder — Integriti (integriti.io) and Integriti Studio (integritistudio.com)
+- Individual contractor who personally does the work (important for jobs that ask this)
+- Based in Canada (EST timezone, available 7AM–6PM EST)
+- Available for Zoom calls, Slack, ClickUp, Asana
+- Offers long-term collaboration and post-launch support
+
+---
+
+OUTPUT FORMAT — CRITICAL:
+- Output plain text only. No markdown formatting whatsoever — no asterisks, no pound signs, no dashes as bullets, no underscores, no bold, no italics, no headers.
+- Write exactly as it would appear when pasted into the Upwork proposal text box.
+- The only formatting allowed is a plain dash and URL on each line for portfolio examples.
+- Do NOT add any preamble. Do not write "Here is your proposal:" or "Sure, here's a draft:" — start directly with Hi/Hello or the hidden keyword if one exists.
+- NEVER use em dashes (—) or en dashes (–) anywhere in the proposal. Use a comma, period, or rewrite the sentence instead.
+
+CONCISENESS — CRITICAL:
+- Every sentence must earn its place. Cut anything that doesn't add new information.
+- One idea per sentence. No run-on sentences joined by em dashes or semicolons.
+- Each paragraph should be 2-4 sentences maximum. No paragraph walls.
+- No over-explaining: say what you'll do, not why it is obvious you'll do it.
+- No throat-clearing openers ("I wanted to reach out", "I came across your job post", "I believe I am a great fit").
+- No padding closers ("I look forward to hearing from you", "Please feel free to reach out", "I am excited about this opportunity").
+- If a sentence can be cut without losing meaning, cut it.
+
+---
+
+I vs WE — DEFAULT RULE:
+- Default: use "I", "my", "me" throughout. Haseeb sends proposals from his individual account.
+- Use "We", "our", "Integriti" ONLY when the job explicitly asks for an agency/team, or when the user's extra instructions say to mention the company.
+- Never mix I and We in the same proposal.
+
+---
+
+THE 6-STAGE WINNING FORMULA — follow this structure every time:
+
+STAGE 1 — HOOK (first line, never generic):
+Choose based on job type:
+- Use client's name if visible: "Hi [Name],"
+- If they have a live site/store mentioned: reference it by name to show you looked
+- Arabic/Middle-East client: open with "Salam,"
+- Startup/founder job: validate the product idea in one sentence
+- Vague or unclear job: surface the most common failure mode for that project type
+- Hidden instruction in job post (e.g. "write APPLE at the top", "start with THURSDAY"): do it as the absolute first word, then continue
+
+STAGE 2 — PROOF (immediately after hook):
+- Lead with the single most relevant past project by name with its live URL
+- Match proof to job type: Shopify job → Shopify store, Webflow job → Webflow site, WordPress job → WordPress site
+- Never dump the full portfolio here — pick the 1-2 most relevant examples first
+
+STAGE 3 — UNDERSTANDING (show you read the brief):
+- Mirror the job structure back using the client's own language and terms
+- Address the hardest or most technical requirement first
+- For multi-part jobs, address each part in the same order as the brief
+
+STAGE 4 — TECHNICAL PLAN:
+- Specific enough to show expertise, simple enough for a non-technical client
+- Use the exact tools and technologies the client mentioned
+- When client asks for a platform recommendation: give a confident specific answer with clear reasoning — never just "it depends"
+- Speak the industry language:
+  - Shopify: "Liquid", "OS 2.0", "Sections Everywhere", "line item properties", "metafields", "JSON templates"
+  - Webflow: "CMS collections", "Finsweet", "interactions", "dynamic content"
+  - Fashion/luxury: "editorial typography", "generous whitespace", "lets the product breathe"
+  - Startup/founder: "funnel", "conversion", "retention", "lean MVP"
+  - B2B/agency: "long-term partner", "operational efficiency", "frictionless collaboration"
+
+STAGE 5 — EXTRAS (differentiation):
+- Proactively flag risks or constraints the client didn't mention (Shopify 100-variant limit, HIPAA, QR URL stability, etc.)
+- For previous-developer-failed jobs: acknowledge the audit-first step explicitly and early
+- For urgent/timed jobs: confirm deadline clearly and suggest a backup/rollback plan
+
+STAGE 6 — CLOSE:
+- Low pressure, never pushy
+- Match the close to client type:
+  - Simple/vague job → "Let's connect via chat"
+  - Complex technical job → "Let's connect over a Zoom call"
+  - Startup/founder job → "Let's discuss further details over a Zoom call"
+  - Agency/B2B job → "Let's schedule a short call to explore how we can support your workflow"
+- For vague or ambiguous scope: end with 1-2 smart clarifying questions directed at the client
+- For jobs where tasks aren't listed: ask "Could you share the list of tasks?"
+- For long-term potential: mirror it back: "I'm open to long-term collaboration"
+
+---
+
+PROPOSAL LENGTH — match to job complexity:
+- Short / simple / vague job → 3-5 paragraphs
+- Complex / detailed / multi-part job → 6-10 paragraphs
+- Lean job post → lean proposal (mirror the client's energy)
+- Always answer every explicit application question in the order asked
+
+---
+
+CRITICAL RULES:
+1. Always check for hidden instructions first (keywords to include, format requirements) — follow them as the very first word
+2. Never be generic — every proposal must reference something specific about that job or client
+3. Answer every explicit question the job post asks, in the same order
+4. Never use filler: "I am passionate about", "I would love the opportunity to", "Looking forward to hearing from you", "My expertise allows me to effectively", "I can definitely help with this"
+5. For jobs with a stated budget: come in at or slightly below the lower end — never race to the bottom
+6. For invite-only jobs: keep it tight — proof + approach + communication style is enough
+7. For audit/fix/finish jobs: "I'll start with a thorough audit before touching anything"
+8. For individual contractor jobs that explicitly say no agencies: state "I am an individual contractor and will personally handle 100% of the work"
+9. Never repeat the same sentence or idea twice in a proposal
+10. Use WINNING PROPOSALS from the reference documents as the primary style guide — match their tone, sentence rhythm, and phrasing exactly
+
+---
+
+SMART CLARIFYING QUESTIONS (use only 1-2, only when genuinely needed):
+- "Do you have existing branding/design assets, or will you need design direction?"
+- "Will this need real-time inventory tracking, or are you managing stock manually?"
+- "Could you share the list of tasks? This will help me provide accurate quotes and timelines."
+- "Do you envision this as a step-by-step visual configurator, or a guided experience that submits a structured quote request?"
+- "Will vendors handle their own shipping, or will it be managed centrally?"
+- "Should the variant/image updates apply globally or only on select collections?"
+
+---
+
+PORTFOLIO REFERENCE (use this to match examples to jobs):
+
+SHOPIFY STORES:
+- coloritto.co — Ella theme, custom mega menu, wallpaper calculator (Liquid + JS), bypassed 100-variant limit
+- meroliving.com — Ella theme, WordPress to Shopify migration, fixed multi-currency sync
+- hertrove.com — Lorenza theme, redesigned, currency converter fix, AR/EN multilingual
+- thinlizzy.com.au — Shopify Plus, Expanse, GemPages, Recharge subscriptions, luxury skincare
+- vinosite.com — Shopify Plus, Dawn, auto-add reusable bag to cart, advanced cart logic
+- rypgolf.com — Ella, Shopify 2.0, PageFly to Liquid migration, Klaviyo integration
+- nettpharmacy.com — Ella, healthcare, 1000+ products, complete build
+- nuu-muu.com — metafield-based variant colors, product color redirect, complex variants
+- oushkfuel.com — fully custom Shopify 2.0 single-product store from Figma, bold branding
+- urthlabs.com — Ella, GemPages, Recharge subscriptions API
+- masterchocolat.com — build-your-own chocolate box, Liquid, product bundling
+- clearwellness360.com — Recharge, custom JS for delivery duration selection
+- mercian hockey — Wix to Shopify migration, complete redesign, Ella
+- try.drinknello.com — Webflow to Shopify migration, Wonder theme
+- shop.skinandhaircenter.com — WordPress + Shopify linked for ecom
+- zenduradental.com — Real-Time Pricing Custom App, Node.js, React, Polaris, SAP integration
+- prettydynasty.com — DSers automated dropshipping
+- dinamelwani.com — luxury fashion, strong imagery, minimalist
+- melvinjoyeria.com — pre-owned luxury watches, Abbott's Edge inventory sync
+- snackexpedition.com — GemPages, subscription snack box
+- skirack.com — Aurora, tailored product pages, optimized user flow
+
+SHOPIFY CUSTOM APPS:
+- Shopify-Klaviyo Connector — custom event tracking, storefront JS + API
+- Loyalty Program App — customer status tracking, cron jobs, metafields, Klaviyo sync
+- Real-Time Pricing App — ERP-based dynamic pricing (zenduradental.com)
+- Inventory Sync App — real-time stock from external systems
+- Shipping Rate Calculator App — dynamic shipping by pickup location
+- Tech stack: Node.js backend, React.js + Polaris frontend
+
+WEBFLOW SITES:
+- molyneauxhome.webflow.io — Airtable integration, Finsweet CMS Bridge, CMS filtering
+- check-my-ride.webflow.io — real-time map MVP, Firebase + Supabase + Mapbox
+- anneclaireexperience.com / acecharleston.com — fitness platform, Webflow CMS
+- weareplai.com — template customisation, lead gen form, Stripe checkout
+- integriti.io — agency site, CMS, custom animations
+- integritistudio.com — portfolio, Next.js headless
+- durabuiltwindows.com — renovation page
+
+WORDPRESS SITES:
+- skinandhaircenter.com — Figma to Elementor, booking forms, SEO
+- ccsrcalgary.com — chiropractic, Elementor Pro, appointment booking, payments
+- windigosigns.com — B2B wholesale signage, Elementor, JotForm, dealer CTAs
+- weacttctac.org — custom post types, ACF metafields, events system
+- yourlondonchauffeur.co.uk — WooCommerce, custom booking
+- coloradomediation.org — legal/mediation, service pages
+- vrvisiongroup.com — GTM, GA4, form click tracking
+- clearheartcounselling.com, thrivenowphysio.com, fraserlifephysio.ca — healthcare sites
+- ramzunalanguages.org — language learning platform
+
+SQUARESPACE:
+- analogtattoo.com — complete site, ecom, custom shipping (flat, international, USPS)
+- foodshot.com.au — food/restaurant brand
+- kiremico.com — artist portfolio, minimalist
+
+NEXT.JS:
+- mxsocal.com — landing page + bike rental MVP (Node.js)
+- proteksolutions.ca — business site
+- hirundo.tech — complete website
+
+---
+
+JOB TYPE PLAYBOOK (apply the matching playbook for each job):
+
+Shopify theme build/customisation → lead with most relevant store, mention specific theme, address OS 2.0, Sections Everywhere, mobile-first, Lighthouse scores
+Shopify custom feature/calculator/builder → open with pain point, reference coloritto wallpaper calculator + masterchocolat build-your-own box, mention 100-variant limit solution proactively, explain line item properties
+Shopify app development → reference zenduradental immediately, list other custom apps, confirm Node.js + React + Polaris + App Bridge stack
+Shopify subscriptions/Recharge → reference clearwellness360 + thinlizzy, for fashion subscriptions speak drop culture and exclusivity
+Webflow build → reference check-my-ride for real-time/complex, molyneauxhome for Airtable/CMS, integriti.io for design-focused
+Webflow + Zapier/Airtable/Stripe → validate product idea, walk through automation stack component by component, bid mid-range, offer pre-kickoff review, confirm QA Looms + handover doc
+WordPress build → match site to job type (healthcare → physio/chiro, legal → coloradomediation, B2B → windigosigns, fitness → vitalitywithnadira)
+Bilingual/RTL/Arabic → open "Salam,", reference hertrove.com, mention Shopify Markets, confirm RTL via dir="rtl"
+Luxury/editorial/fashion → speak "editorial typography", "generous whitespace", "lets the product breathe", lead with design thinking, reference hertrove + dinamelwani + thinlizzy
+Multi-vendor marketplace → recommend WooCommerce + Dokan Pro over Shopify, explain why, give milestone timeline
+Agency/long-term partner → use "We are Integriti", reference integriti.io + integritistudio.com, confirm Slack/ClickUp/Asana, organise portfolio by platform, end with "long-term digital partner"
+Individual contractor (explicitly no agencies) → confirm "I am an individual contractor and will personally handle 100% of the work", use I not we, give hourly rate $25-30/hr
+Audit/fix/finish existing work → acknowledge audit-first step early, address reassuringly if previous developer failed, offer to review what's reusable before billing
+Timed/urgent launch → confirm exact deadline in first lines, reference timed launches (BFCM on thinlizzy, holiday on vinosite), suggest rollback plan
+Simple/vague job → open with pain point, expand scope briefly, ask 1-2 smart clarifying questions, keep short"""
 
 
 def build_user_prompt(
@@ -610,6 +813,7 @@ def build_user_prompt(
     user_instructions: str,
     winning_text: str,
     portfolio_text: str,
+    quick_phrases_text: str,
     tech_stacks: dict,
     recent_context: str,
     urls_from_docs: list,
@@ -617,20 +821,21 @@ def build_user_prompt(
     relevant_example_override: str = None,
     high_rated_context: str = None,
 ) -> str:
-    tech_lines = [f"- {k}: {v}" for k, v in tech_stacks.items()]
-    tech_block = "\n".join(tech_lines) if tech_lines else "None detected; omit URLs if not relevant."
     urls_block = "\n".join(urls_from_docs[:40]) if urls_from_docs else ""
 
-    user = f"""
-WINNING PROPOSALS (your primary pattern — match structure, tone, sentence length, and how openings/closings are phrased):
+    user = f"""WINNING PROPOSALS — study these carefully. Match their tone, sentence rhythm, how they open, how they close, and how they reference past work:
 
 \"\"\"
-{winning_text[:12000]}
+{winning_text[:WINNING_PROMPT_CHAR_LIMIT]}
 \"\"\"
 
-OPENING CHECK: Your first 1–2 sentences must be clearly modeled on openings from the WINNING PROPOSALS block above (same level of directness and specificity). Do not use any "I see a/an … opportunity" phrasing. Do not open with meta commentary about having read the job post unless those winning samples do.
+QUICK PHRASES & PORTFOLIO SNIPPETS — pre-written lines organised by tech stack and situation. Use the ones that fit this job directly. They are already proven and human-sounding:
 
-PORTFOLIO (matched items for this job; name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct projects when enough are listed below; reference by plain name only, e.g. Vino Site, not **Vino Site** [Vino Site]. After each example, add that project's website URL from the portfolio, e.g. coloritto.co, urthlabs.com):
+\"\"\"
+{quick_phrases_text[:QUICK_PHRASES_PROMPT_CHAR_LIMIT]}
+\"\"\"
+
+FULL PORTFOLIO — all past projects with URLs. Use ONLY the projects that are genuinely relevant to this job's specific challenge:
 
 \"\"\"
 {portfolio_text[:PORTFOLIO_PROMPT_CHAR_LIMIT]}
@@ -638,72 +843,85 @@ PORTFOLIO (matched items for this job; name at least {MIN_PORTFOLIO_EXAMPLES_IN_
 
 """
     if urls_block:
-        user += f"""
-Website URLs from the winning proposals and portfolio (use these after the relevant examples in the proposal—e.g. "Vino Site (coloritto.co)" or "see urthlabs.com". Do NOT use tech product URLs like shopify.com or gempages.com in the proposal):
+        user += f"""Project site URLs (use these after examples — only real project URLs, never platform URLs like shopify.com):
 {urls_block}
 
 """
-    if recent_context:
-        user += f"""
-RECENT PROPOSALS (optional voice hints only—do NOT copy their openings if they use generic "opportunity" or "I've reviewed" lines; WINNING PROPOSALS above win for structure and tone):
-{recent_context}
-
-"""
     if relevant_examples_context:
-        user += f"""
+        user += f"""Previously saved relevant examples for similar jobs (use if they fit):
 {relevant_examples_context}
 
 """
     if high_rated_context:
-        user += f"""
+        user += f"""High-rated past proposals (structure/voice hints only):
 {high_rated_context}
 
 """
-    if relevant_example_override:
-        user += f"""
-You MUST include the user-specified examples below in this proposal: {relevant_example_override}
-Also pull additional relevant projects from the PORTFOLIO until the proposal names at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct portfolio projects in total (the specified ones count toward that minimum).
-After each example, add that project's website URL from the portfolio/winning proposals (e.g. coloritto.co, urthlabs.com). Do NOT add tech product URLs like shopify.com or gempages.com.
+    if recent_context:
+        user += f"""Recent proposals (tone reference only — WINNING PROPOSALS wins for structure):
+{recent_context}
 
 """
-    user += f"""
-NEW JOB POST:
+    if relevant_example_override:
+        user += f"""REQUIRED EXAMPLES — must appear in the proposal: {relevant_example_override}
+Include additional relevant projects from the portfolio as needed. Each gets its live URL.
 
+"""
+    user += f"""JOB POST:
 \"\"\"
 {job_post}
 \"\"\"
-
 """
     if user_instructions:
         user += f"""
-USER INSTRUCTIONS FOR THIS SPECIFIC PROPOSAL:
-
+EXTRA INSTRUCTIONS FOR THIS PROPOSAL:
 \"\"\"
 {user_instructions}
 \"\"\"
-
-Follow these user instructions carefully while still following all the strict rules and style from the winning proposals above.
-
 """
+
     if relevant_example_override:
-        user += f"""TASK: Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style (never "I see a/an … opportunity"). The body must name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct portfolio projects in total, including every user-specified example above, each with its site URL. No icons in headings, no divider lines, no AI jargon. Output ONLY the proposal text."""
+        user += """
+TASK: Write one Upwork proposal following the 6-stage formula (Hook, Proof, Understanding, Technical Plan, Extras, Close). Include every required example above plus any other genuinely relevant portfolio items. Each gets its live URL on its own line. Plain text only — no markdown, no bold, no dividers. Output ONLY the proposal text."""
     else:
-        user += f"""TASK:
-1. Write one complete Upwork proposal. Use the winning proposals' structure, tone, and opening style—never "I see a/an … opportunity" or similar hype openings. Name at least {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} distinct relevant portfolio projects by plain name only (no ** or [ ] or *). Add more than {MIN_PORTFOLIO_EXAMPLES_IN_PROPOSAL} when it helps. After each example you mention, add that project's website URL from the portfolio or winning proposals (e.g. coloritto.co, urthlabs.com)—do NOT add tech product URLs like shopify.com or gempages.com. No icons in headings, no divider lines, no AI jargon.
-2. After the proposal, on a new line, write exactly this line (replace X with the one or two portfolio items that are the best fit for this job): Note - Relevant example for this job: X
-Output the proposal first, then that Note line. The agent will remember the relevant example for similar jobs."""
+        user += """
+TASK: Write one Upwork proposal for the job post above.
+
+Before writing, silently work through:
+1. Scan for hidden instructions (keywords to write first, format requirements) — if found, use as absolute first word/line
+2. Identify the job type and apply the matching playbook from your instructions
+3. Find the 1-3 portfolio examples most relevant to this specific challenge (same problem type, not just same platform)
+4. Check if client name or their website is mentioned — use it
+5. I or We? Default is I (individual) — only use We if the job explicitly asks for a team/agency
+6. Match length to complexity: simple/vague = 3-5 paragraphs, complex/detailed = 6-10 paragraphs
+
+Write the proposal following the 6-stage formula:
+Stage 1 — Hook: client name, their site, hidden keyword, validate idea, or surface pain point — never generic
+Stage 2 — Proof: most relevant past project with live URL, immediately
+Stage 3 — Understanding: mirror brief using their language, hardest requirement first
+Stage 4 — Technical plan: specific to their tools, use correct industry terminology
+Stage 5 — Extras: flag risks or constraints they didn't ask about
+Stage 6 — Close: match to job type (chat / Zoom / agency call / clarifying questions)
+
+Plain text only. No markdown. No em dashes. No filler phrases. No "I see a/an ... opportunity". Keep every paragraph to 2-4 sentences. Cut any sentence that repeats an idea already stated.
+
+After the proposal, on a new line write exactly:
+Note - Relevant example for this job: X
+(X = the 1-2 best-fit portfolio items for future similar jobs)
+
+Output the proposal first, then that Note line. Nothing else."""
 
     return user
 
 
-def generate_proposal(job_post: str, user_instructions: str = "", relevant_example_override: str = None, user_id: str | None = None) -> dict:
+def generate_proposal(job_post: str, user_instructions: str = "", relevant_example_override: str = None, user_id=None) -> dict:
     """
     Load brain from docx, detect tech stacks, call LLM, log proposal.
     If relevant_example_override is set, save it for future jobs and rewrite the proposal using it (no Note line in output).
     Returns { "proposal": str, "tech_stacks": dict, "relevant_example": str, "error": str or None }.
     """
     try:
-        winning_text, portfolio_text = load_brain()
+        winning_text, portfolio_text, quick_phrases_text = load_brain()
     except FileNotFoundError as e:
         return {"proposal": "", "tech_stacks": {}, "relevant_example": "", "error": str(e)}
     except Exception as e:
@@ -726,10 +944,18 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
         char_limit=PORTFOLIO_PROMPT_CHAR_LIMIT,
         lines_per_snippet=3,
     )
+    matched_quick_phrases_text = get_top_relevant_snippets(
+        source_text=quick_phrases_text,
+        job_post=job_post,
+        tech_stacks=tech_stacks,
+        max_snippets=TOP_QUICK_PHRASES_SNIPPETS,
+        char_limit=QUICK_PHRASES_PROMPT_CHAR_LIMIT,
+        lines_per_snippet=3,
+    )
     recent_context = get_recent_proposals_context()
     relevant_examples_context = get_relevant_examples_for_job(job_post, tech_stacks)
     high_rated_context = get_high_rated_proposals_context()
-    urls_from_docs = extract_urls_from_docs(winning_text + "\n" + portfolio_text)
+    urls_from_docs = extract_urls_from_docs(winning_text + "\n" + portfolio_text + "\n" + quick_phrases_text)
 
     if relevant_example_override:
         save_relevant_example(job_post, relevant_example_override.strip(), tech_stacks)
@@ -740,6 +966,7 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
         (user_instructions or "").strip(),
         matched_winning_text or winning_text[:WINNING_PROMPT_CHAR_LIMIT],
         matched_portfolio_text or portfolio_text[:PORTFOLIO_PROMPT_CHAR_LIMIT],
+        matched_quick_phrases_text or quick_phrases_text[:QUICK_PHRASES_PROMPT_CHAR_LIMIT],
         tech_stacks,
         recent_context,
         urls_from_docs,
@@ -748,27 +975,42 @@ def generate_proposal(job_post: str, user_instructions: str = "", relevant_examp
         high_rated_context,
     )
 
-    api_key = os.getenv("OPENAI_API_KEY")
+    api_key = os.getenv("ANTHROPIC_API_KEY")
     if not api_key:
         return {
             "proposal": "",
             "tech_stacks": tech_stacks,
             "relevant_example": "",
-            "error": "OPENAI_API_KEY not set. Set it in the environment or .env file.",
+            "error": "ANTHROPIC_API_KEY not set. Set it in the environment or .env file.",
         }
 
     try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        resp = client.chat.completions.create(
-            model=OPENAI_MODEL,
-            temperature=0.7,
+        from anthropic import Anthropic
+        client = Anthropic(api_key=api_key)
+        resp = client.messages.create(
+            model=CLAUDE_MODEL,
+            max_tokens=2048,
+            system=[
+                {
+                    "type": "text",
+                    "text": system,
+                    # Cache the system prompt — it never changes between calls.
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
             messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": user,
+                        }
+                    ],
+                }
             ],
         )
-        raw = (resp.choices[0].message.content or "").strip()
+        raw = (resp.content[0].text or "").strip()
         if relevant_example_override:
             proposal = raw
             relevant_example = relevant_example_override.strip()
