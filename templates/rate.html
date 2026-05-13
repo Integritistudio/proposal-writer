@@ -154,6 +154,14 @@
   {% endif %}
 
   <script>
+    // Global error logging for frontend debugging
+    window.onerror = function(message, source, lineno, colno, error) {
+      console.error('Frontend Error:', message, 'at', source + ':' + lineno + ':' + colno, error);
+    };
+    window.addEventListener('unhandledrejection', function(event) {
+      console.error('Unhandled Promise Rejection:', event.reason);
+    });
+
     document.querySelectorAll('.rating-select').forEach(function (sel) {
       sel.addEventListener('change', function () {
         var ts = this.getAttribute('data-ts');
